@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -97,7 +99,13 @@ func startScenario(scenarioID string) {
 	log.Printf("Scenario %s started", scenarioID)
 }
 
-func checkTelegramChannel() {
+func getElementHash(html string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(html))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func checkTelegramChannel(lastElementHash *string) {
 	log.Printf("Checking channel")
 	channelUrl := os.Getenv("CHANNEL_URL")
 	res, err := http.Get(channelUrl)
@@ -126,14 +134,23 @@ func checkTelegramChannel() {
 		return
 	}
 
-	element := doc.Find(".tgme_widget_message_text").Last()
-	log.Println("Last element in channel:", element.Text())
-	found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
-		return strings.Contains(strings.ToLower(element.Text()), triggerWord)
-	})
-
-	if found {
-		sendDangerousNotification()
+	lastElement := doc.Find(".tgme_widget_message_wrap").Last()
+	lastElementText := lastElement.Find(".tgme_widget_message_text").Text()
+	log.Println("Last message in channel:", lastElementText)
+	newLastElementHash := getElementHash(lastElementText)
+	if newLastElementHash != *lastElementHash {
+		log.Printf("New last element hash: %s", newLastElementHash)
+		found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
+			return strings.Contains(strings.ToLower(lastElementText), triggerWord)
+		})
+		if found {
+			sendDangerousNotification()
+		} else {
+			log.Printf("Trigger words not found in message")
+		}
+		*lastElementHash = newLastElementHash
+	} else {
+		log.Printf("Message with hash %s already processed", newLastElementHash)
 	}
 	log.Println("Check channel complete")
 }
@@ -152,6 +169,7 @@ func sendDangerousNotification() {
 
 func main() {
 	err := godotenv.Load()
+	var lastElementHash string
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
@@ -175,7 +193,7 @@ func main() {
 		case <-ctx.Done():
 			return
 		default:
-			checkTelegramChannel()
+			checkTelegramChannel(&lastElementHash)
 			log.Printf("Sleeping for %d seconds", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
