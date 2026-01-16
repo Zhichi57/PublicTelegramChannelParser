@@ -136,18 +136,31 @@ func checkTelegramChannel(lastElementHash *string) {
 
 	lastElement := doc.Find(".tgme_widget_message_wrap").Last()
 	lastElementText := lastElement.Find(".tgme_widget_message_text").Text()
-	log.Println("Last message in channel:", lastElementText)
 	newLastElementHash := getElementHash(lastElementText)
 	if newLastElementHash != *lastElementHash {
 		log.Printf("New last element hash: %s", newLastElementHash)
-		found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
-			return strings.Contains(strings.ToLower(lastElementText), triggerWord)
-		})
-		if found {
-			sendDangerousNotification()
-		} else {
-			log.Printf("Trigger words not found in message")
+
+		elements := doc.Find(".tgme_widget_message_wrap")
+		count := elements.Length()
+		startIndex := max(0, count-5)
+		lastThree := elements.Slice(startIndex, count)
+
+		for i := 0; i < lastThree.Length(); i++ {
+			element := lastThree.Eq(i)
+			elementText := element.Find(".tgme_widget_message_text").Text()
+			log.Printf("Last %d message in channel: %s", i, elementText)
+
+			found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
+				return strings.Contains(strings.ToLower(elementText), triggerWord)
+			})
+			if found {
+				sendDangerousNotification()
+				break
+			} else {
+				log.Printf("Trigger words not found in message")
+			}
 		}
+
 		*lastElementHash = newLastElementHash
 	} else {
 		log.Printf("Message with hash %s already processed", newLastElementHash)
