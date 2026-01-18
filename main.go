@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,13 +97,7 @@ func startScenario(scenarioID string) {
 	log.Printf("Scenario %s started", scenarioID)
 }
 
-func getElementHash(html string) string {
-	hasher := sha256.New()
-	hasher.Write([]byte(html))
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-func checkTelegramChannel(lastElementHash *string) {
+func checkTelegramChannel(triggerMessageTime *string) {
 	log.Printf("Checking channel")
 	channelUrl := os.Getenv("CHANNEL_URL")
 	res, err := http.Get(channelUrl)
@@ -134,36 +126,34 @@ func checkTelegramChannel(lastElementHash *string) {
 		return
 	}
 
-	lastElement := doc.Find(".tgme_widget_message_wrap").Last()
-	lastElementText := lastElement.Find(".tgme_widget_message_text").Text()
-	newLastElementHash := getElementHash(lastElementText)
-	if newLastElementHash != *lastElementHash {
-		log.Printf("New last element hash: %s", newLastElementHash)
+	elements := doc.Find(".tgme_widget_message_wrap")
+	count := elements.Length()
+	startIndex := max(0, count-5)
+	lastThree := elements.Slice(startIndex, count)
 
-		elements := doc.Find(".tgme_widget_message_wrap")
-		count := elements.Length()
-		startIndex := max(0, count-5)
-		lastThree := elements.Slice(startIndex, count)
+	log.Printf("Last trigger message time: %s", *triggerMessageTime)
+	for i := 0; i < lastThree.Length(); i++ {
+		element := lastThree.Eq(i)
+		elementText := element.Find(".tgme_widget_message_text").Text()
+		elementTime, _ := element.Find("time").Attr("datetime")
+		log.Printf("Last %d message in a channel: %s. Time: %s", i, elementText, elementTime)
 
-		for i := 0; i < lastThree.Length(); i++ {
-			element := lastThree.Eq(i)
-			elementText := element.Find(".tgme_widget_message_text").Text()
-			log.Printf("Last %d message in channel: %s", i, elementText)
-
-			found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
-				return strings.Contains(strings.ToLower(elementText), triggerWord)
-			})
-			if found {
+		found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
+			return strings.Contains(strings.ToLower(elementText), triggerWord)
+		})
+		if found {
+			if *triggerMessageTime != elementTime {
+				*triggerMessageTime = elementTime
+				log.Printf("Trigger words found in a message: %s", elementText)
+				log.Printf("New trigger message time: %s", elementTime)
 				sendDangerousNotification()
 				break
 			} else {
-				log.Printf("Trigger words not found in message")
+				log.Printf("Trigger words found in a message, but time is the same: %s", elementTime)
 			}
+		} else {
+			log.Printf("Trigger words not found in message")
 		}
-
-		*lastElementHash = newLastElementHash
-	} else {
-		log.Printf("Message with hash %s already processed", newLastElementHash)
 	}
 	log.Println("Check channel complete")
 }
@@ -182,7 +172,7 @@ func sendDangerousNotification() {
 
 func main() {
 	err := godotenv.Load()
-	var lastElementHash string
+	var triggerMessageTime string
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
@@ -206,7 +196,7 @@ func main() {
 		case <-ctx.Done():
 			return
 		default:
-			checkTelegramChannel(&lastElementHash)
+			checkTelegramChannel(&triggerMessageTime)
 			log.Printf("Sleeping for %d seconds", sleepTime)
 			time.Sleep(time.Duration(sleepTime) * time.Second)
 		}
