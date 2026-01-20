@@ -36,7 +36,8 @@ type ActionsResponse struct {
 func sendIotRequest(url string, method string) []byte {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		panic(err)
+		log.Println("Error creating request:", err)
+		return nil
 	}
 	token := os.Getenv("YANDEX_TOKEN")
 
@@ -44,17 +45,19 @@ func sendIotRequest(url string, method string) []byte {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		panic(err)
+		log.Println("Error sending request:", err)
+		return nil
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-
+			log.Println("Error closing body:", err)
 		}
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		log.Fatalf("Error sending IOT request: %d %s", resp.StatusCode, string(body))
+		log.Printf("Error sending IOT request: %d %s", resp.StatusCode, string(body))
+		return nil
 	}
 
 	return body
@@ -62,15 +65,20 @@ func sendIotRequest(url string, method string) []byte {
 
 func getScenarioID() string {
 	bodyBytes := sendIotRequest("https://api.iot.yandex.net/v1.0/user/info", "GET")
+	if bodyBytes == nil {
+		return ""
+	}
 
 	var result UserResponse
 	err := json.Unmarshal(bodyBytes, &result)
 	if err != nil {
-		panic(err)
+		log.Println("Error unmarshaling JSON:", err)
+		return ""
 	}
 
 	if result.Status != "ok" {
-		log.Fatalf("Failed to get scenario id: %s", result.Status)
+		log.Printf("Failed to get scenario id: %s", result.Status)
+		return ""
 	}
 
 	for _, scenario := range result.Scenarios {
@@ -84,15 +92,20 @@ func getScenarioID() string {
 func startScenario(scenarioID string) {
 	url := fmt.Sprintf("https://api.iot.yandex.net/v1.0/scenarios/%s/actions", scenarioID)
 	bodyBytes := sendIotRequest(url, "POST")
+	if bodyBytes == nil {
+		return
+	}
 
 	var result ActionsResponse
 	err := json.Unmarshal(bodyBytes, &result)
 	if err != nil {
-		panic(err)
+		log.Println("Error unmarshaling JSON:", err)
+		return
 	}
 
 	if result.Status != "ok" {
-		log.Fatalf("Failed to start scenario: %s", result.Status)
+		log.Printf("Failed to start scenario: %s", result.Status)
+		return
 	}
 	log.Printf("Scenario %s started", scenarioID)
 }
@@ -102,21 +115,24 @@ func checkTelegramChannel(triggerMessageTime *string) {
 	channelUrl := os.Getenv("CHANNEL_URL")
 	res, err := http.Get(channelUrl)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Error fetching channel:", err)
+		return
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-
+			log.Println("Error closing body:", err)
 		}
 	}(res.Body)
 	if res.StatusCode != 200 {
-		log.Fatalf("status code error: %d %s", res.StatusCode, res.Status)
+		log.Printf("status code error: %d %s", res.StatusCode, res.Status)
+		return
 	}
 
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("Error parsing document:", err)
+		return
 	}
 
 	triggerWords := strings.Split(os.Getenv("TRIGGER_WORDS"), ",")
@@ -161,7 +177,8 @@ func checkTelegramChannel(triggerMessageTime *string) {
 func sendDangerousNotification() {
 	scenarioId := getScenarioID()
 	if scenarioId == "" {
-		log.Fatal("Scenario id not found")
+		log.Println("Scenario id not found")
+		return
 	} else {
 		log.Printf("Found scenario id: %s", scenarioId)
 	}
@@ -174,7 +191,8 @@ func main() {
 	err := godotenv.Load()
 	var triggerMessageTime string
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("Error loading .env file")
+		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
