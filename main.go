@@ -145,28 +145,31 @@ func checkTelegramChannel(triggerMessageTime *string) {
 	elements := doc.Find(".tgme_widget_message_wrap")
 	count := elements.Length()
 	startIndex := max(0, count-5)
-	lastThree := elements.Slice(startIndex, count)
+	lastFive := elements.Slice(startIndex, count)
 
 	log.Printf("Last trigger message time: %s", *triggerMessageTime)
-	for i := 0; i < lastThree.Length(); i++ {
-		element := lastThree.Eq(i)
+	for i := 0; i < lastFive.Length(); i++ {
+		element := lastFive.Eq(i)
 		elementText := element.Find(".tgme_widget_message_text").Text()
 		elementTime, _ := element.Find("time").Attr("datetime")
+
 		log.Printf("Last %d message in a channel: %s. Time: %s", i, elementText, elementTime)
+
+		if *triggerMessageTime != "" && elementTime <= *triggerMessageTime {
+			log.Printf("Message already processed")
+			continue
+		}
 
 		found := slices.ContainsFunc(triggerWords, func(triggerWord string) bool {
 			return strings.Contains(strings.ToLower(elementText), triggerWord)
 		})
+
 		if found {
-			if *triggerMessageTime != elementTime {
-				*triggerMessageTime = elementTime
-				log.Printf("Trigger words found in a message: %s", elementText)
-				log.Printf("New trigger message time: %s", elementTime)
-				sendDangerousNotification()
-				break
-			} else {
-				log.Printf("Trigger words found in a message, but time is the same: %s", elementTime)
-			}
+			*triggerMessageTime = elementTime
+			log.Printf("Trigger words found in a message: %s", elementText)
+			log.Printf("New trigger message time: %s", elementTime)
+			sendNotification()
+			break
 		} else {
 			log.Printf("Trigger words not found in message")
 		}
@@ -174,7 +177,7 @@ func checkTelegramChannel(triggerMessageTime *string) {
 	log.Println("Check channel complete")
 }
 
-func sendDangerousNotification() {
+func sendNotification() {
 	scenarioId := getScenarioID()
 	if scenarioId == "" {
 		log.Println("Scenario id not found")
