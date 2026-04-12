@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/proxy"
 	"io"
 	"log"
 	"net/http"
@@ -113,7 +114,32 @@ func startScenario(scenarioID string) {
 func checkTelegramChannel(triggerMessageTime *string) {
 	log.Printf("Checking channel")
 	channelUrl := os.Getenv("CHANNEL_URL")
-	res, err := http.Get(channelUrl)
+	socks5Addr := os.Getenv("SOCKS5_PROXY")
+
+	dialer, err := proxy.SOCKS5("tcp", socks5Addr, nil, proxy.Direct)
+	if err != nil {
+		panic(err)
+	}
+	contextDialer, ok := dialer.(proxy.ContextDialer)
+	if !ok {
+		panic("dialer does not support ContextDialer")
+	}
+
+	transport := &http.Transport{
+		DialContext: contextDialer.DialContext,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, channelUrl, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		log.Println("Error fetching channel:", err)
 		return
